@@ -1,0 +1,5 @@
+package android
+
+ANativeWindow :: struct {
+        
+}
