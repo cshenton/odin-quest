@@ -1,5 +1,7 @@
 package quest
 
+import "core:fmt"
+
 import glue "./android/glue"
 
 import egl "./egl"
@@ -11,7 +13,7 @@ MAX_SWAPCHAIN_LENGTH :: 3
 
 App :: struct {
         // Native app glue
-        app: rawptr, // TODO: ^glue.App,
+        app: ^glue.App,
         is_window_init: bool,
 
         // EGL state required to initialise OpenXR
@@ -83,53 +85,108 @@ App :: struct {
         projection_layer_views: [MAX_VIEWS]xr.CompositionLayerProjection,
 }
 
-app_android_handle_cmd :: proc "c" (app: ^glue.App, cmd: i32) {
+app_android_handle_cmd :: proc "c" (app: ^glue.App, cmd: glue.App_Cmd) {
         a := cast(^App)app.userData
 
-        switch cmd {
-        // case .CMD_DESTROY: ANativeActivity_finish
+        #partial switch cmd {
+        case .Destroy: {
+                // Handle application shutdown
+                // ANativeActivity_finish(app->activity);
+                // TODO: call app_shutdown
+        }
+        case .Init_Window: {
+                if !a.is_window_init {
+                        a.is_window_init = true;
+                        // printf( "Got start event\n" );
+                }
+                // TODO: else, handle resume
+        }
+        case .Term_Window: break // Turns up when focus is lost
+        case .Save_State: break
+        case .Resume: break
         }
 }
 
-// Callback handling android commands
-// extern "C" void app_android_handle_cmd(android_app *app, int32_t cmd) {
-//         app_t *a = (app_t *)app->userData;
+app_set_callbacks_and_wait :: proc(a: ^App, ga: ^glue.App) {
+        a.app = ga
+        ga.userData = a
+        ga.onAppCmd = app_android_handle_cmd
+        
+        events: i32
+        for !a.is_window_init {
+                // source: ^glue.Poll_Source
+                // if ( ALooper_pollAll( 0, 0, &events, (void **)&source ) >= 0 ) {
+                //         if (source != NULL) {
+                //                 source->process(app, source)
+                //         }
+                // }
+        }
+        fmt.printf("Window Initialized\n")
+}
 
-//         switch (cmd) {
-//         case APP_CMD_DESTROY:
-//                 // Handle application shutdown
-//                 ANativeActivity_finish(app->activity);
-//                 // TODO: call app_shutdown
-//                 break;
-//         case APP_CMD_INIT_WINDOW:
-//                 if (!a->is_window_init) {
-//                         a->is_window_init = true;
-//                         printf( "Got start event\n" );
-//                 }
-//                 else {
-//                         // TODO: Handle Resume
-//                 }
-//                 break;
-//         case APP_CMD_TERM_WINDOW:
-//                 // Turns up when focus is lost
-//                 // Seems like the main loop just xrWaitFrame hitches
-//         	break;
-//         case APP_CMD_SAVE_STATE:
-//                 printf("Saving application state\n");
-//                 app->savedState = malloc(sizeof(app_t));
-//                 memcpy(app->savedState, a, sizeof(app_t));
-//                 app->savedStateSize = sizeof(app_t);
-//                 break;
-//         case APP_CMD_RESUME:
-//                 // Nope, that doesn't work
-//                 // printf("Resumed, loading state\n");
-//                 // memcpy(a, app->savedState, sizeof(app_t));
-//                 break;
-//         // TODO: APP_CMD_SAVE_STATE
-//         default:
-//                 printf("event not handled: %d\n", cmd);
-//         }
-// }
+
+// Initialise EGL resources and context, needed later to pass to OpenXR
+app_init_gl :: proc(a: ^App) {
+        // Display
+        a.egl_display = egl.GetDisplay(egl.DEFAULT_DISPLAY)
+        assert(a.egl_display != egl.NO_DISPLAY)
+        egl_major, egl_minor: i32
+        egl_init_success := egl.Initialize(a.egl_display, &egl_major, &egl_minor)
+        assert(bool(egl_init_success))
+
+        fmt.printf("EGL Version: \"%s\"\n", egl.QueryString(a.egl_display, egl.VERSION))
+        fmt.printf("EGL Vendor: \"%s\"\n", egl.QueryString(a.egl_display, egl.VENDOR))
+        fmt.printf("EGL Extensions: \"%s\"\n", egl.QueryString(a.egl_display, egl.EXTENSIONS))
+
+        // Config
+        num_config: i32
+        config_attribute_list := [?]i32{
+                egl.RED_SIZE, 8,
+                egl.GREEN_SIZE, 8,
+                egl.BLUE_SIZE, 8,
+                egl.ALPHA_SIZE, 8,
+                egl.BUFFER_SIZE, 32,
+                egl.STENCIL_SIZE, 0,
+                egl.DEPTH_SIZE, 16, // Maybe 32?
+                //EGL_SAMPLES, 1,
+                egl.RENDERABLE_TYPE, egl.OPENGL_ES3_BIT,
+                egl.NONE,
+        }
+        egl.ChooseConfig(a.egl_display, &config_attribute_list[0], &a.egl_config, 1, &num_config)
+        fmt.printf("Config: %d\n", num_config)
+
+        // Context
+        fmt.printf("Creating Context\n")
+        context_attribute_list := [?]i32{
+                egl.CONTEXT_CLIENT_VERSION, 2,
+                egl.NONE,
+        }
+        a.egl_context = egl.CreateContext(a.egl_display, a.egl_config, egl.NO_CONTEXT, &context_attribute_list[0])
+        assert(a.egl_context != egl.NO_CONTEXT)
+        fmt.printf("Context Created %p\n", a.egl_context)
+
+        // Surface
+        assert(a.app.window != nil)
+        // win_width := ANativeWindow_getWidth(a.app.window)
+        // win_height := ANativeWindow_getHeight(a.app.window)
+        // fmt.printf("Width/Height: %dx%d\n", win_width, win_height)
+        window_attribute_list := [?]i32{ egl.NONE }
+        a.egl_surface = egl.CreateWindowSurface(a.egl_display, a.egl_config, a.app.window, &window_attribute_list[0])
+        fmt.printf("Got Surface: %p\n", a.egl_surface)
+        assert(a.egl_surface != egl.NO_SURFACE)
+
+        // Make Current
+        egl_make_current_success := egl.MakeCurrent(a.egl_display, a.egl_surface, a.egl_surface, a.egl_context)
+        assert(bool(egl_make_current_success))
+
+        // Make some OpenGL calls
+        // fmt.printf("GL Vendor: \"%s\"\n", glGetString(GL_VENDOR))
+        // fmt.printf("GL Renderer: \"%s\"\n", glGetString(GL_RENDERER))
+        // fmt.printf("GL Version: \"%s\"\n", glGetString(GL_VERSION))
+        // fmt.printf("GL Extensions: \"%s\"\n", glGetString(GL_EXTENSIONS))
+}
+
+
 
 BACKGROUND_VERT_SRC := `
 #version 320 es

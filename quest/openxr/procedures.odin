@@ -11,13 +11,14 @@ timespec :: libc.timespec
 wchar_t :: libc.wchar_t
 jobject :: rawptr
 
-when ODIN_OS == .Windows {
-	import win32 "core:sys/windows"
-        LARGE_INTEGER :: win32.LARGE_INTEGER
-} else {
+// when ODIN_OS == .Windows {
+// 	import win32 "core:sys/windows"
+//         LARGE_INTEGER :: win32.LARGE_INTEGER
+// } else 
+// {
         LARGE_INTEGER :: distinct c.longlong
-}
-
+// }
+// 
 ProcEnumerateApiLayerProperties :: #type proc "system" (
 	propertyCapacityInput: u32,
 	propertyCountOutput: ^u32,

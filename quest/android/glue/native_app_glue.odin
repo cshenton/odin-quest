@@ -285,7 +285,7 @@ App_Cmd :: enum c.int {
 
 @(default_calling_convention="c")
 @(link_prefix="android_")
-foreign egl {
+foreign {
 
 /**
  * Call when ALooper_pollAll() returns LOOPER_ID_MAIN, reading the next
@@ -314,6 +314,6 @@ app_post_exec_cmd :: proc(app: ^App, cmd: i8) ---
 //  extern void android_main(struct android_app* app);
 }
 
-processFn :: #type proc(app: ^App, source: ^Poll_Source)
-onAppCmdFn :: #type proc(app: ^App, cmd: App_Cmd)
-onInputEventFn :: #type proc(app: ^App, event: ^android.AInputEvent) -> i32
+processFn :: #type proc "c" (app: ^App, source: ^Poll_Source)
+onAppCmdFn :: #type proc "c" (app: ^App, cmd: App_Cmd)
+onInputEventFn :: #type proc "c" (app: ^App, event: ^android.AInputEvent) -> i32

@@ -1,11 +1,12 @@
 package openxr
 
 // Link just the proc address loader
-when ODIN_OS == .Windows {
-	foreign import openxr_loader "openxr_loader.lib"
-} else {
+// when ODIN_OS == .Windows {
+// 	foreign import openxr_loader "openxr_loader.lib"
+// } else 
+// {
 	foreign import openxr_loader "libopenxr_loader.so"
-}
+// }
 
 foreign openxr_loader {
 	@(link_name = "xrGetInstanceProcAddr")

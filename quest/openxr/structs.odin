@@ -10,41 +10,42 @@ import vk "vendor:vulkan"
 EGLenum :: c.int
 
 // Windows specific OS / API types
-when ODIN_OS == .Windows {
-	import win32 "core:sys/windows"
-        HDC :: win32.HDC
-        HGLRC :: win32.HGLRC
-	LUID  :: win32.LUID
-        IUnknown :: win32.IUnknown
+// when ODIN_OS == .Windows {
+// 	import win32 "core:sys/windows"
+//         HDC :: win32.HDC
+//         HGLRC :: win32.HGLRC
+// 	LUID  :: win32.LUID
+//         IUnknown :: win32.IUnknown
 
-        D3D_FEATURE_LEVEL :: c.int
+//         D3D_FEATURE_LEVEL :: c.int
 
-        import D3D11 "vendor:directx/d3d11"
-        ID3D11Device :: D3D11.IDevice
-        ID3D11Texture2D :: D3D11.ITexture2D
+//         import D3D11 "vendor:directx/d3d11"
+//         ID3D11Device :: D3D11.IDevice
+//         ID3D11Texture2D :: D3D11.ITexture2D
         
-        import D3D12 "vendor:directx/d3d12"
-        ID3D12Device :: D3D12.IDevice
-        ID3D12CommandQueue :: D3D12.ICommandQueue
-        ID3D12Resource :: D3D12.IResource
-} else {
-        HDC :: distinct rawptr
-        HGLRC :: distinct rawptr
-	LUID   :: struct {
-		LowPart:  DWORD,
-		HighPart: LONG,
-	}
-        IUnknown :: distinct rawptr
-
-        D3D_FEATURE_LEVEL :: c.int
-        
-        ID3D11Device :: distinct rawptr
-        ID3D11Texture2D :: distinct rawptr
-        
-        ID3D12Device :: distinct rawptr
-        ID3D12CommandQueue :: distinct rawptr
-        ID3D12Resource :: distinct rawptr
+//         import D3D12 "vendor:directx/d3d12"
+//         ID3D12Device :: D3D12.IDevice
+//         ID3D12CommandQueue :: D3D12.ICommandQueue
+//         ID3D12Resource :: D3D12.IResource
+// } else 
+// {
+HDC :: distinct rawptr
+HGLRC :: distinct rawptr
+LUID   :: struct {
+	LowPart:  c.ulong,
+	HighPart: c.long,
 }
+IUnknown :: distinct rawptr
+
+D3D_FEATURE_LEVEL :: c.int
+
+ID3D11Device :: distinct rawptr
+ID3D11Texture2D :: distinct rawptr
+
+ID3D12Device :: distinct rawptr
+ID3D12CommandQueue :: distinct rawptr
+ID3D12Resource :: distinct rawptr
+// }
 
 Vector2f :: struct {
 	x: f32,
