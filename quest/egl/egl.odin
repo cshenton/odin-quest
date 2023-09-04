@@ -267,3 +267,7 @@ CreatePlatformWindowSurface :: proc(dpy: Display, config: Config, native_window:
 CreatePlatformPixmapSurface :: proc(dpy: Display, config: Config, native_pixmap: rawptr, attrib_list: [^]Attrib) -> Surface ---
 WaitSync :: proc(dpy: Display, sync: Sync, flags: i32) -> b32 ---
 }
+
+gl_set_proc_address :: proc(p: rawptr, name: cstring) {
+        (^rawptr)(p)^ = GetProcAddress(name)
+}

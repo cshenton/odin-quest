@@ -28,6 +28,10 @@ make_string :: proc(str: string, $n: int) -> [n]u8 {
 	return result
 }
 
+succeeded :: proc(result: Result) -> bool {
+	return i32(result) >= 0
+}
+
 // Function pointer types
 ProcSetProcAddress :: #type proc "c" (p: rawptr, name: cstring)
 ProcVoidFunction :: #type proc "c" () -> rawptr

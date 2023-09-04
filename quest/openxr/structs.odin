@@ -223,6 +223,15 @@ GraphicsBindingVulkanKHR :: struct {
 	queueIndex: u32,
 }
 
+// Provided by XR_KHR_opengl_es_enable
+GraphicsBindingOpenGLESAndroidKHR :: struct {
+	sType: StructureType,
+	next: rawptr,
+	display: rawptr,
+	config: rawptr,
+	ccontext: rawptr,
+}
+
 SessionCreateInfo :: struct {
 	sType: StructureType,
 	next: rawptr,
