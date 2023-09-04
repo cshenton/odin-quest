@@ -8,6 +8,7 @@ import gl "vendor:OpenGL"
 
 import egl "./egl"
 import glue "./android/glue"
+import "./android"
 import xr "./openxr"
 
 HAND_COUNT :: 2
@@ -117,12 +118,12 @@ app_set_callbacks_and_wait :: proc(a: ^App, ga: ^glue.App) {
         
         events: i32
         for !a.is_window_init {
-                // source: ^glue.Poll_Source
-                // if ( ALooper_pollAll( 0, 0, &events, (void **)&source ) >= 0 ) {
-                //         if (source != NULL) {
-                //                 source.process(app, source)
-                //         }
-                // }
+                source: ^glue.Poll_Source
+                if android.ALooper_pollAll(0, nil, &events, cast(^rawptr)&source) >= 0 {
+                        if source != nil {
+                                source.process(ga, source)
+                        }
+                }
         }
         fmt.printf("Window Initialized\n")
 }
@@ -714,13 +715,13 @@ app_update_session_state_change :: proc(a: ^App, state: xr.SessionState) {
 // Pump the android and OpenXR event loops
 app_update_pump_events :: proc(a: ^App) {
         // // Pump Android Event Loop
-        // int events;
-        // struct android_poll_source *source;
-        // while (ALooper_pollAll(0, 0, &events, (void **)&source) >= 0 ) {
-        //         if (source != NULL) {
-        //                 source->process(a->app, source );
-        //         }
-        // }
+        events: i32
+        source: ^glue.Poll_Source
+        for android.ALooper_pollAll(0, nil, &events, cast(^rawptr)&source) >= 0 {
+                if source != nil {
+                        source.process(a.app, source)
+                }
+        }
 
         // Pump OpenXR Event Loop
         is_remaining_events := true
