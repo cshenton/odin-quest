@@ -1,5 +1,6 @@
 package quest
 
+import c "core:c/libc"
 import "core:fmt"
 import "core:math"
 import la "core:math/linalg"
@@ -115,7 +116,7 @@ app_set_callbacks_and_wait :: proc(a: ^App, ga: ^glue.App) {
         a.app = ga
         ga.userData = a
         ga.onAppCmd = app_android_handle_cmd
-        
+
         events: i32
         for !a.is_window_init {
                 source: ^glue.Poll_Source
@@ -125,7 +126,7 @@ app_set_callbacks_and_wait :: proc(a: ^App, ga: ^glue.App) {
                         }
                 }
         }
-        fmt.printf("Window Initialized\n")
+        c.printf("Window Initialized\n")
 }
 
 // Initialise EGL resources and context, needed later to pass to OpenXR
@@ -137,9 +138,11 @@ app_init_egl :: proc(a: ^App) {
         egl_init_success := egl.Initialize(a.egl_display, &egl_major, &egl_minor)
         assert(bool(egl_init_success))
 
-        fmt.printf("EGL Version: \"%s\"\n", egl.QueryString(a.egl_display, egl.VERSION))
-        fmt.printf("EGL Vendor: \"%s\"\n", egl.QueryString(a.egl_display, egl.VENDOR))
-        fmt.printf("EGL Extensions: \"%s\"\n", egl.QueryString(a.egl_display, egl.EXTENSIONS))
+        c.printf("Some Function Pointers %p, %p, %p\n", egl.GetDisplay, egl.QueryString, egl.ChooseConfig)
+
+        c.printf("EGL Version: \"%s\"\n", egl.QueryString(a.egl_display, egl.VERSION))
+        c.printf("EGL Vendor: \"%s\"\n", egl.QueryString(a.egl_display, egl.VENDOR))
+        c.printf("EGL Extensions: \"%s\"\n", egl.QueryString(a.egl_display, egl.EXTENSIONS))
 
         // Config
         num_config: i32
@@ -156,26 +159,26 @@ app_init_egl :: proc(a: ^App) {
                 egl.NONE,
         }
         egl.ChooseConfig(a.egl_display, &config_attribute_list[0], &a.egl_config, 1, &num_config)
-        fmt.printf("Config: %d\n", num_config)
+        c.printf("Config: %d\n", num_config)
 
         // Context
-        fmt.printf("Creating Context\n")
+        c.printf("Creating Context\n")
         context_attribute_list := [?]i32{
                 egl.CONTEXT_CLIENT_VERSION, 2,
                 egl.NONE,
         }
         a.egl_context = egl.CreateContext(a.egl_display, a.egl_config, egl.NO_CONTEXT, &context_attribute_list[0])
         assert(a.egl_context != egl.NO_CONTEXT)
-        fmt.printf("Context Created %p\n", a.egl_context)
+        c.printf("Context Created %p\n", a.egl_context)
 
         // Surface
         assert(a.app.window != nil)
         // win_width := ANativeWindow_getWidth(a.app.window)
         // win_height := ANativeWindow_getHeight(a.app.window)
-        // fmt.printf("Width/Height: %dx%d\n", win_width, win_height)
+        // c.printf("Width/Height: %dx%d\n", win_width, win_height)
         window_attribute_list := [?]i32{ egl.NONE }
         a.egl_surface = egl.CreateWindowSurface(a.egl_display, a.egl_config, a.app.window, &window_attribute_list[0])
-        fmt.printf("Got Surface: %p\n", a.egl_surface)
+        c.printf("Got Surface: %p\n", a.egl_surface)
         assert(a.egl_surface != egl.NO_SURFACE)
 
         // Make Current
@@ -186,10 +189,10 @@ app_init_egl :: proc(a: ^App) {
         gl.load_up_to(4, 6, egl.gl_set_proc_address)
 
         // Make some OpenGL calls
-        fmt.printf("GL Vendor: \"%s\"\n", gl.GetString(gl.VENDOR))
-        fmt.printf("GL Renderer: \"%s\"\n", gl.GetString(gl.RENDERER))
-        fmt.printf("GL Version: \"%s\"\n", gl.GetString(gl.VERSION))
-        fmt.printf("GL Extensions: \"%s\"\n", gl.GetString(gl.EXTENSIONS))
+        c.printf("GL Vendor: \"%s\"\n", gl.GetString(gl.VENDOR))
+        c.printf("GL Renderer: \"%s\"\n", gl.GetString(gl.RENDERER))
+        c.printf("GL Version: \"%s\"\n", gl.GetString(gl.VERSION))
+        c.printf("GL Extensions: \"%s\"\n", gl.GetString(gl.EXTENSIONS))
 }
 
 
@@ -200,14 +203,16 @@ app_init_xr_create_instance :: proc(a: ^App) {
         // Loader
         loader_func: xr.ProcInitializeLoaderKHR
 	result = xr.GetInstanceProcAddr(nil, "xrInitializeLoaderKHR", cast(^xr.ProcVoidFunction)&loader_func)
+        c.printf("Got Initialize Loader Proc\n")
         assert(xr.succeeded(result))
-	init_data := xr.LoaderInitInfoAndroidKHR { 
+	init_data := xr.LoaderInitInfoAndroidKHR {
                 sType = .LOADER_INIT_INFO_ANDROID_KHR,
                 applicationVM = a.app.activity.vm,
                 applicationContext = a.app.activity.clazz,
         }
 	result = loader_func(cast(^xr.LoaderInitInfoBaseHeaderKHR)&init_data)
         assert(xr.succeeded(result))
+        xr.load_base_procs()
 
         // Enumerate Extensions
         extension_properties: [128]xr.ExtensionProperties
@@ -221,9 +226,9 @@ app_init_xr_create_instance :: proc(a: ^App) {
         }
         result = xr.EnumerateInstanceExtensionProperties(nil, extension_count, &extension_count, &extension_properties[0])
         assert(xr.succeeded(result))
-        fmt.printf("OpenXR Extension Count: %d\n", extension_count)
+        c.printf("OpenXR Extension Count: %d\n", extension_count)
         for i in 0 ..< extension_count {
-                fmt.printf("        %s\n", extension_properties[i].extensionName)
+                c.printf("        %s\n", &extension_properties[i].extensionName[0])
         }
 
         // Check for GLES Extension
@@ -234,7 +239,7 @@ app_init_xr_create_instance :: proc(a: ^App) {
 		}
 	}
         assert(is_gles_supported)
-        fmt.printf("OpenXR OpenGL ES extension found\n")
+        c.printf("OpenXR OpenGL ES extension found\n")
 
         // Create Instance
 	enabledExtensions := [?]cstring{"XR_KHR_opengl_es_enable"}
@@ -253,14 +258,16 @@ app_init_xr_create_instance :: proc(a: ^App) {
         }
 	result = xr.CreateInstance(&instance_desc, &a.instance)
         assert(xr.succeeded(result))
+        xr.load_instance_procs(a.instance)
 
         // Instance Properties
         instance_props := xr.InstanceProperties{ sType = .INSTANCE_PROPERTIES }
         result = xr.GetInstanceProperties(a.instance, &instance_props)
+        c.printf("Hello Pal, Instance Properties Got\n")
         assert(xr.succeeded(result))
-        fmt.printf("Runtime Name: %s\n", instance_props.runtimeName)
-        fmt.printf("Runtime Name: %s\n", instance_props.runtimeName)
-        // fmt.printf("Runtime Version: %d.%d.%d\n",
+        c.printf("Runtime Name: %s\n", &instance_props.runtimeName[0])
+        c.printf("Runtime Name: %s\n", &instance_props.runtimeName[0])
+        // c.printf("Runtime Version: %d.%d.%d\n",
         //         xr.VERSION_MAJOR(instance_props.runtimeVersion),
         //         xr.VERSION_MINOR(instance_props.runtimeVersion),
         //         xr.VERSION_PATCH(instance_props.runtimeVersion))
@@ -276,9 +283,9 @@ app_init_xr_create_instance :: proc(a: ^App) {
         }
         result = xr.EnumerateApiLayerProperties(layer_count, &layer_count, &layer_props[0])
         assert(xr.succeeded(result))
-        fmt.printf("OpenXR API Layers: %d\n", layer_count)
+        c.printf("OpenXR API Layers: %d\n", layer_count)
         for i in 0 ..< layer_count {
-                fmt.printf("        %s, %s\n", layer_props[i].layerName, layer_props[i].description)
+                c.printf("        %s, %s\n", &layer_props[i].layerName[0], &layer_props[i].description[0])
         }
 }
 
@@ -295,12 +302,12 @@ app_init_xr_get_system :: proc (a: ^App) {
         result = xr.GetSystemProperties(a.instance, a.system, &system_props)
         assert(xr.succeeded(result))
 
-        fmt.printf("System properties for system \"%s\":\n", system_props.systemName)
-        fmt.printf("	maxLayerCount: %d\n", system_props.graphicsProperties.maxLayerCount)
-        fmt.printf("	maxSwapChainImageHeight: %d\n", system_props.graphicsProperties.maxSwapchainImageHeight)
-        fmt.printf("	maxSwapChainImageWidth: %d\n", system_props.graphicsProperties.maxSwapchainImageWidth)
-        fmt.printf("	Orientation Tracking: %s\n", system_props.trackingProperties.orientationTracking ? "true" : "false")
-        fmt.printf("	Position Tracking: %s\n", system_props.trackingProperties.positionTracking ? "true" : "false")
+        c.printf("System properties for system \"%s\":\n", &system_props.systemName[0])
+        c.printf("	maxLayerCount: %d\n", system_props.graphicsProperties.maxLayerCount)
+        c.printf("	maxSwapChainImageHeight: %d\n", system_props.graphicsProperties.maxSwapchainImageHeight)
+        c.printf("	maxSwapChainImageWidth: %d\n", system_props.graphicsProperties.maxSwapchainImageWidth)
+        c.printf("	Orientation Tracking: %s\n", system_props.trackingProperties.orientationTracking ? "true" : "false")
+        c.printf("	Position Tracking: %s\n", system_props.trackingProperties.positionTracking ? "true" : "false")
 }
 
 // Enumerate the views (perspectives we need to render) and print their properties
@@ -317,15 +324,15 @@ app_init_xr_enum_views :: proc(a: ^App) {
         }
         result = xr.EnumerateViewConfigurationViews(a.instance, a.system, .PRIMARY_STEREO, a.view_count, &a.view_count, &a.view_configs[0])
         assert(xr.succeeded(result))
-        fmt.printf("%d view_configs:\n", a.view_count)
+        c.printf("%d view_configs:\n", a.view_count)
         for i in 0 ..< a.view_count {
-                fmt.printf("	view_configs[%d]:\n", i)
-                fmt.printf("		recommendedImageRectWidth: %d\n", a.view_configs[i].recommendedImageRectWidth)
-                fmt.printf("		maxImageRectWidth: %d\n", a.view_configs[i].maxImageRectWidth)
-                fmt.printf("		recommendedImageRectHeight: %d\n", a.view_configs[i].recommendedImageRectHeight)
-                fmt.printf("		maxImageRectHeight: %d\n", a.view_configs[i].maxImageRectHeight)
-                fmt.printf("		recommendedSwapchainSampleCount: %d\n", a.view_configs[i].recommendedSwapchainSampleCount)
-                fmt.printf("		maxSwapchainSampleCount: %d\n", a.view_configs[i].maxSwapchainSampleCount)
+                c.printf("	view_configs[%d]:\n", i)
+                c.printf("		recommendedImageRectWidth: %d\n", a.view_configs[i].recommendedImageRectWidth)
+                c.printf("		maxImageRectWidth: %d\n", a.view_configs[i].maxImageRectWidth)
+                c.printf("		recommendedImageRectHeight: %d\n", a.view_configs[i].recommendedImageRectHeight)
+                c.printf("		maxImageRectHeight: %d\n", a.view_configs[i].maxImageRectHeight)
+                c.printf("		recommendedSwapchainSampleCount: %d\n", a.view_configs[i].recommendedSwapchainSampleCount)
+                c.printf("		maxSwapchainSampleCount: %d\n", a.view_configs[i].maxSwapchainSampleCount)
         }
 }
 
@@ -342,7 +349,7 @@ app_init_xr_create_session :: proc(a: ^App) {
 	egl_version := xr.MAKE_VERSION(3, 2, 0)
         assert(egl_version >= xr_gles_reqs.minApiVersionSupported && egl_version <= xr_gles_reqs.maxApiVersionSupported)
 
-	gl_binding := xr.GraphicsBindingOpenGLESAndroidKHR{ 
+	gl_binding := xr.GraphicsBindingOpenGLESAndroidKHR{
                 sType = .GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR,
                 display  = a.egl_display,
                 config = a.egl_config,
@@ -372,13 +379,13 @@ app_init_xr_create_stage_space :: proc(a: ^App) {
         result = xr.EnumerateReferenceSpaces(a.session, reference_spaces_count,
                 &reference_spaces_count, &reference_spaces[0])
         assert(xr.succeeded(result))
-        fmt.printf("Reference Spaces:\n")
+        c.printf("Reference Spaces:\n")
         for i in 0 ..< reference_spaces_count {
                 #partial switch (reference_spaces[i]) {
-                case .VIEW: fmt.printf("\t.VIEW\n")
-                case .LOCAL: fmt.printf("\t.LOCAL\n")
-                case .STAGE: fmt.printf("\t.STAGE\n")
-                case: fmt.printf("\t.%d\n", reference_spaces[i])
+                case .VIEW: c.printf("\t.VIEW\n")
+                case .LOCAL: c.printf("\t.LOCAL\n")
+                case .STAGE: c.printf("\t.STAGE\n")
+                case: c.printf("\t.%d\n", reference_spaces[i])
                 }
         }
 
@@ -397,6 +404,8 @@ app_init_xr_create_stage_space :: proc(a: ^App) {
 // Create the action set, actions, interaction profile, and attach the action set to the session
 app_init_xr_create_actions :: proc(a: ^App) {
         result: xr.Result
+
+        c.printf("Creating Actions\n")
 
         // Create Action Set
 	action_set_desc := xr.ActionSetCreateInfo{
@@ -429,7 +438,7 @@ app_init_xr_create_actions :: proc(a: ^App) {
                 localizedActionName = xr.make_string("Grab Object", xr.MAX_LOCALIZED_ACTION_NAME_SIZE),
                 countSubactionPaths = 2,
                 subactionPaths = &a.hand_paths[0],
-        } 
+        }
 	result = xr.CreateAction(a.action_set, &grab_desc, &a.grab_action)
         assert(xr.succeeded(result))
 
@@ -513,8 +522,8 @@ app_init_xr_create_actions :: proc(a: ^App) {
         assert(xr.succeeded(result))
 
         // Hand Spaces
-	action_space_desc := xr.ActionSpaceCreateInfo{ 
-                sType = .ACTION_SPACE_CREATE_INFO, 
+	action_space_desc := xr.ActionSpaceCreateInfo{
+                sType = .ACTION_SPACE_CREATE_INFO,
                 action = a.pose_action,
                 poseInActionSpace = {{0.0, 0.0, 0.0, 1.0}, {0.0, 0.0, 0.0}},
                 subactionPath = a.hand_paths[0],
@@ -591,11 +600,11 @@ app_init_xr_create_swapchains :: proc(a: ^App) {
                 assert(xr.succeeded(result))
 	}
 
-        fmt.printf("Swapchains:\n")
+        c.printf("Swapchains:\n")
         for i in 0 ..< a.view_count {
-                fmt.printf("        width: %d\n", a.swapchain_widths[i])
-                fmt.printf("        height: %d\n", a.swapchain_heights[i])
-                fmt.printf("        length: %d\n", a.swapchain_lengths[i])
+                c.printf("        width: %d\n", a.swapchain_widths[i])
+                c.printf("        height: %d\n", a.swapchain_heights[i])
+                c.printf("        length: %d\n", a.swapchain_lengths[i])
         }
 }
 
@@ -628,7 +637,7 @@ app_compile_shader :: proc(vert_src, frag_src: cstring) -> (program: u32) {
         if success == 0 {
                 info_log: [512]u8
                 gl.GetShaderInfoLog(vert_shd, 512, nil, &info_log[0])
-                fmt.printf("Vertex shader compilation failed:\n %s\n", cstring(&info_log[0]))
+                c.printf("Vertex shader compilation failed:\n %s\n", cstring(&info_log[0]))
         }
 
         frag_shd := gl.CreateShader(gl.FRAGMENT_SHADER)
@@ -639,7 +648,7 @@ app_compile_shader :: proc(vert_src, frag_src: cstring) -> (program: u32) {
         if success == 0 {
                 info_log: [512]u8
                 gl.GetShaderInfoLog(frag_shd, 512, nil, &info_log[0])
-                fmt.printf("Fragment shader compilation failed:\n %s\n", cstring(&info_log[0]))
+                c.printf("Fragment shader compilation failed:\n %s\n", cstring(&info_log[0]))
         }
 
         program = gl.CreateProgram()
@@ -651,7 +660,7 @@ app_compile_shader :: proc(vert_src, frag_src: cstring) -> (program: u32) {
         if success == 0 {
                 info_log: [512]u8
                 gl.GetProgramInfoLog(program, 512, nil, &info_log[0])
-                fmt.printf("Program Linking failed:\n %s\n", cstring(&info_log[0]))
+                c.printf("Program Linking failed:\n %s\n", cstring(&info_log[0]))
         }
 
         gl.DeleteShader(vert_shd)
@@ -685,7 +694,7 @@ app_init :: proc(a: ^App, ga: ^glue.App) {
 
 // Begin the OpenXR session
 app_update_begin_session :: proc(a: ^App) {
-        fmt.printf("Beginning Session")
+        c.printf("Beginning Session")
         begin_desc := xr.SessionBeginInfo{
                 sType = .SESSION_BEGIN_INFO,
                 primaryViewConfigurationType = .PRIMARY_STEREO,
@@ -700,15 +709,15 @@ app_update_begin_session :: proc(a: ^App) {
 app_update_session_state_change :: proc(a: ^App, state: xr.SessionState) {
         a.session_state = state
         #partial switch (a.session_state) {
-        case .IDLE: fmt.printf(".IDLE\n")
-        case .READY: fmt.printf(".READY\n"); app_update_begin_session(a)
-        case .SYNCHRONIZED: fmt.printf(".SYNCHRONIZED\n")
-        case .VISIBLE: fmt.printf(".VISIBLE\n")
-        case .FOCUSED: fmt.printf(".FOCUSED\n")
-        case .STOPPING: fmt.printf(".STOPPING\n")
-        case .LOSS_PENDING: fmt.printf(".LOSS_PENDING\n")
-        case .EXITING: fmt.printf(".EXITING\n")
-        case: fmt.printf(".??? %d\n", i32(a.session_state))
+        case .IDLE: c.printf(".IDLE\n")
+        case .READY: c.printf(".READY\n"); app_update_begin_session(a)
+        case .SYNCHRONIZED: c.printf(".SYNCHRONIZED\n")
+        case .VISIBLE: c.printf(".VISIBLE\n")
+        case .FOCUSED: c.printf(".FOCUSED\n")
+        case .STOPPING: c.printf(".STOPPING\n")
+        case .LOSS_PENDING: c.printf(".LOSS_PENDING\n")
+        case .EXITING: c.printf(".EXITING\n")
+        case: c.printf(".??? %d\n", i32(a.session_state))
         }
 }
 
@@ -736,24 +745,24 @@ app_update_pump_events :: proc(a: ^App) {
 
                 #partial switch event_data.sType {
                 case .EVENT_DATA_INSTANCE_LOSS_PENDING:
-                        fmt.printf("Event: .EVENT_DATA_INSTANCE_LOSS_PENDING\n")
+                        c.printf("Event: .EVENT_DATA_INSTANCE_LOSS_PENDING\n")
                         // TODO: Handle, or prefer to handle loss pending in session state?
                 case .EVENT_DATA_SESSION_STATE_CHANGED: {
-                        fmt.printf("Event: .EVENT_DATA_SESSION_STATE_CHANGED -> ")
+                        c.printf("Event: .EVENT_DATA_SESSION_STATE_CHANGED -> ")
                         ssc := cast(^xr.EventDataSessionStateChanged)&event_data
                         app_update_session_state_change(a, ssc.state)
                 }
                 case .EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
-                        fmt.printf("Event: .EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING\n")
+                        c.printf("Event: .EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING\n")
                         // TODO: Handle Reference Spaces changes
                 case .EVENT_DATA_EVENTS_LOST:
-                        fmt.printf("Event: .EVENT_DATA_EVENTS_LOST\n")
+                        c.printf("Event: .EVENT_DATA_EVENTS_LOST\n")
                         // TODO: print warning
                 case .EVENT_DATA_INTERACTION_PROFILE_CHANGED:
-                        fmt.printf("Event: .EVENT_DATA_INTERACTION_PROFILE_CHANGED\n")
+                        c.printf("Event: .EVENT_DATA_INTERACTION_PROFILE_CHANGED\n")
                         // TODO: this shouldn't happen but handle
                 case:
-                        fmt.printf("Event: Unhandled event type %d\n", event_data.sType)
+                        c.printf("Event: Unhandled event type %d\n", event_data.sType)
                 }
         }
 }
@@ -766,13 +775,13 @@ app_update_begin_frame_and_get_inputs :: proc(a: ^App) {
         active_action_set := xr.ActiveActionSet{
                 actionSet = a.action_set,
                 subactionPath = xr.Path(0),
-        } 
+        }
         action_sync_info := xr.ActionsSyncInfo{
                 sType = .ACTIONS_SYNC_INFO,
                 next = nil,
                 countActiveActionSets = 1,
                 activeActionSets = &active_action_set,
-        } 
+        }
         result = xr.SyncActions(a.session, &action_sync_info)
         assert(xr.succeeded(result))
 
@@ -801,7 +810,7 @@ app_update_begin_frame_and_get_inputs :: proc(a: ^App) {
         result = xr.LocateSpace(a.hand_spaces[1], a.stage_space, a.frame_state.predictedDisplayTime, &a.hand_locations[1])
         assert(xr.succeeded(result))
 
-        action_get_info := xr.ActionStateGetInfo{ 
+        action_get_info := xr.ActionStateGetInfo{
                 sType = .ACTION_STATE_GET_INFO,
                 action = a.trigger_action,
                 subactionPath = a.hand_paths[0],
@@ -818,7 +827,7 @@ app_update_begin_frame_and_get_inputs :: proc(a: ^App) {
         frame_begin := xr.FrameBeginInfo{
                 sType = .FRAME_BEGIN_INFO,
                 next = nil,
-        } 
+        }
         result = xr.BeginFrame(a.session, &frame_begin)
         assert(xr.succeeded(result))
 }
@@ -834,10 +843,10 @@ projection_from_fov_gl :: proc(fov: xr.Fovf, near, far: f32) -> (proj: matrix[4,
         offset := near
 
 	proj = matrix[4, 4]f32 {
-		2.0 / width, 0.0, (right + left) / width, 0.0, 
-		0.0, 2.0 / height, (up + down) / height, 0.0, 
-		0.0, 0.0, -(far + offset) / (far - near), -(far * (near + offset)) / (far - near), 
-		0.0, 0.0, -1.0, 0.0, 
+		2.0 / width, 0.0, (right + left) / width, 0.0,
+		0.0, 2.0 / height, (up + down) / height, 0.0,
+		0.0, 0.0, -(far + offset) / (far - near), -(far * (near + offset)) / (far - near),
+		0.0, 0.0, -1.0, 0.0,
 	}
 
 	return
@@ -857,7 +866,7 @@ app_update_render :: proc(a: ^App) {
         result: xr.Result
 
         // Reset Composition Layer
-        a.projection_layer = xr.CompositionLayerProjection{ 
+        a.projection_layer = xr.CompositionLayerProjection{
                 sType = .COMPOSITION_LAYER_PROJECTION,
                 space = a.stage_space,
         }
@@ -874,7 +883,7 @@ app_update_render :: proc(a: ^App) {
                 viewConfigurationType = .PRIMARY_STEREO,
                 displayTime = a.frame_state.predictedDisplayTime,
                 space = a.stage_space,
-        } 
+        }
         result = xr.LocateViews(a.session, &view_locate_info, &view_state, a.view_count, &a.view_submit_count, &views[0])
         assert(xr.succeeded(result))
 
@@ -899,7 +908,7 @@ app_update_render :: proc(a: ^App) {
                 acquire_info := xr.SwapchainImageAcquireInfo { sType = .SWAPCHAIN_IMAGE_ACQUIRE_INFO }
                 result = xr.AcquireSwapchainImage(a.swapchains[v], &acquire_info, &image_index)
                 assert(xr.succeeded(result))
-                wait_info := xr.SwapchainImageWaitInfo{ 
+                wait_info := xr.SwapchainImageWaitInfo{
                         sType = .SWAPCHAIN_IMAGE_WAIT_INFO,
                         timeout = xr.INFINITE_DURATION,
                 }
@@ -921,7 +930,7 @@ app_update_render :: proc(a: ^App) {
 
                 // Right Model
                 right_mvp := view_proj * model_from_pose(a.hand_locations[1].pose)
-        
+
                 // Render into the swapchain directly
                 gl.BindFramebuffer(gl.FRAMEBUFFER, a.framebuffer)
                 gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colour_tex, 0)
@@ -943,7 +952,7 @@ app_update_render :: proc(a: ^App) {
                 gl.UniformMatrix4fv(0, 1, gl.FALSE, &right_mvp[0, 0])
                 gl.Uniform2f(1, a.trigger_states[1].currentState, rtrig)
                 gl.DrawArrays(gl.TRIANGLES, 0, 36)
-                
+
                 // Render Background
                 gl.UseProgram(a.background_program)
                 gl.UniformMatrix4fv(0, 1, gl.FALSE, &view_proj[0, 0])
@@ -963,7 +972,7 @@ app_update_render :: proc(a: ^App) {
 // Submit the frame
 app_update_end_frame :: proc(a: ^App) {
         layers := cast(^xr.CompositionLayerBaseHeader)&a.projection_layer
-        frame_end := xr.FrameEndInfo{ 
+        frame_end := xr.FrameEndInfo{
                 sType = .FRAME_END_INFO,
                 displayTime = a.frame_state.predictedDisplayTime,
                 environmentBlendMode = .OPAQUE,
@@ -988,7 +997,7 @@ app_update :: proc(a: ^App) {
 app_shutdown :: proc(a: ^App) {
         result: xr.Result
 
-        fmt.printf("Shutting Down\n")
+        c.printf("Shutting Down\n")
 
         // Clean up
         for i in 0 ..< a.view_count {
@@ -1012,7 +1021,7 @@ app_shutdown :: proc(a: ^App) {
 }
 
 // Entrypoint called by the OS when using native activity
-android_main :: proc "c" (ga: ^glue.App) {
+@export android_main :: proc "c" (ga: ^glue.App) {
         context = runtime.default_context()
         a: App
         app_init(&a, ga)
@@ -1024,7 +1033,6 @@ android_main :: proc "c" (ga: ^glue.App) {
 
         app_shutdown(&a)
 }
-
 
 BACKGROUND_VERT_SRC : cstring = `
 #version 320 es
@@ -1086,7 +1094,7 @@ void main() {
                 vec3(-0.1,  0.1, -0.1),
                 vec3( 0.1,  0.1, -0.1),
                 vec3( 0.1,  0.1,  0.1),
-                vec3(-0.1,  0.1,  0.1) 
+                vec3(-0.1,  0.1,  0.1)
         );
 
         const int cube_indices[36] = int[36](
@@ -1095,7 +1103,7 @@ void main() {
                 0, 1, 5, 0, 5, 4,
                 3, 6, 2, 3, 7, 6,
                 0, 4, 7, 0, 7, 3,
-                1, 2, 6, 1, 6, 5 
+                1, 2, 6, 1, 6, 5
         );
 
         int index = clamp(gl_VertexID, 0, 35);

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">questodin</string>
+    <string name="lib_name">questodin</string>
+    <string name="package_name">org.cshenton.questodin</string>
+</resources>
