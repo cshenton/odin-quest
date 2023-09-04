@@ -1,6 +1,8 @@
 package quest
 
 import "core:fmt"
+import "core:math"
+import la "core:math/linalg"
 import "core:runtime"
 import gl "vendor:OpenGL"
 
@@ -83,7 +85,7 @@ App :: struct {
         // Frame Submission
         view_submit_count: u32,
         projection_layer: xr.CompositionLayerProjection,
-        projection_layer_views: [MAX_VIEWS]xr.CompositionLayerProjection,
+        projection_layer_views: [MAX_VIEWS]xr.CompositionLayerProjectionView,
 }
 
 app_android_handle_cmd :: proc "c" (app: ^glue.App, cmd: glue.App_Cmd) {
@@ -680,11 +682,332 @@ app_init :: proc(a: ^App, ga: ^glue.App) {
         app_init_opengl_shaders(a)
 }
 
-app_update :: proc(a: ^App) {
+// Begin the OpenXR session
+app_update_begin_session :: proc(a: ^App) {
+        fmt.printf("Beginning Session")
+        begin_desc := xr.SessionBeginInfo{
+                sType = .SESSION_BEGIN_INFO,
+                primaryViewConfigurationType = .PRIMARY_STEREO,
+        }
+        result := xr.BeginSession(a.session, &begin_desc)
+        assert(xr.succeeded(result))
+        a.is_session_begin_ever = true
+        a.is_session_ready = true
 }
 
+// Handle session state changes
+app_update_session_state_change :: proc(a: ^App, state: xr.SessionState) {
+        a.session_state = state
+        #partial switch (a.session_state) {
+        case .IDLE: fmt.printf(".IDLE\n")
+        case .READY: fmt.printf(".READY\n"); app_update_begin_session(a)
+        case .SYNCHRONIZED: fmt.printf(".SYNCHRONIZED\n")
+        case .VISIBLE: fmt.printf(".VISIBLE\n")
+        case .FOCUSED: fmt.printf(".FOCUSED\n")
+        case .STOPPING: fmt.printf(".STOPPING\n")
+        case .LOSS_PENDING: fmt.printf(".LOSS_PENDING\n")
+        case .EXITING: fmt.printf(".EXITING\n")
+        case: fmt.printf(".??? %d\n", i32(a.session_state))
+        }
+}
+
+// Pump the android and OpenXR event loops
+app_update_pump_events :: proc(a: ^App) {
+        // // Pump Android Event Loop
+        // int events;
+        // struct android_poll_source *source;
+        // while (ALooper_pollAll(0, 0, &events, (void **)&source) >= 0 ) {
+        //         if (source != NULL) {
+        //                 source->process(a->app, source );
+        //         }
+        // }
+
+        // Pump OpenXR Event Loop
+        is_remaining_events := true
+        for is_remaining_events {
+                event_data := xr.EventDataBuffer{ sType = .EVENT_DATA_BUFFER }
+                result := xr.PollEvent(a.instance, &event_data)
+                assert(xr.succeeded(result))
+                if (result != .SUCCESS) {
+                        is_remaining_events = false
+                        continue
+                }
+
+                #partial switch event_data.sType {
+                case .EVENT_DATA_INSTANCE_LOSS_PENDING:
+                        fmt.printf("Event: .EVENT_DATA_INSTANCE_LOSS_PENDING\n")
+                        // TODO: Handle, or prefer to handle loss pending in session state?
+                case .EVENT_DATA_SESSION_STATE_CHANGED: {
+                        fmt.printf("Event: .EVENT_DATA_SESSION_STATE_CHANGED -> ")
+                        ssc := cast(^xr.EventDataSessionStateChanged)&event_data
+                        app_update_session_state_change(a, ssc.state)
+                }
+                case .EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
+                        fmt.printf("Event: .EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING\n")
+                        // TODO: Handle Reference Spaces changes
+                case .EVENT_DATA_EVENTS_LOST:
+                        fmt.printf("Event: .EVENT_DATA_EVENTS_LOST\n")
+                        // TODO: print warning
+                case .EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+                        fmt.printf("Event: .EVENT_DATA_INTERACTION_PROFILE_CHANGED\n")
+                        // TODO: this shouldn't happen but handle
+                case:
+                        fmt.printf("Event: Unhandled event type %d\n", event_data.sType)
+                }
+        }
+}
+
+// Wait for the next frame, and get the transforms and button inputs of the controllers
+app_update_begin_frame_and_get_inputs :: proc(a: ^App) {
+        result: xr.Result
+
+        // Sync Input
+        active_action_set := xr.ActiveActionSet{
+                actionSet = a.action_set,
+                subactionPath = xr.Path(0),
+        } 
+        action_sync_info := xr.ActionsSyncInfo{
+                sType = .ACTIONS_SYNC_INFO,
+                next = nil,
+                countActiveActionSets = 1,
+                activeActionSets = &active_action_set,
+        } 
+        result = xr.SyncActions(a.session, &action_sync_info)
+        assert(xr.succeeded(result))
+
+        // Wait Frame
+        a.frame_state.sType = .FRAME_STATE
+        a.frame_state.next = nil
+        frame_wait := xr.FrameWaitInfo{
+                sType = .FRAME_WAIT_INFO,
+                next = nil,
+        }
+        result = xr.WaitFrame(a.session, &frame_wait, &a.frame_state)
+        assert(xr.succeeded(result))
+        a.should_render = bool(a.frame_state.shouldRender)
+
+        // TODO: Different code paths for focussed vs. not focussed
+
+        // Get Action States and Spaces (i.e. current state of the controller inputs)
+        for i in 0 ..< HAND_COUNT {
+                a.hand_locations[i].sType = .SPACE_LOCATION
+                a.trigger_states[i].sType = .ACTION_STATE_FLOAT
+                a.trigger_click_states[i].sType = .ACTION_STATE_BOOLEAN
+        }
+
+        result = xr.LocateSpace(a.hand_spaces[0], a.stage_space, a.frame_state.predictedDisplayTime, &a.hand_locations[0])
+        assert(xr.succeeded(result))
+        result = xr.LocateSpace(a.hand_spaces[1], a.stage_space, a.frame_state.predictedDisplayTime, &a.hand_locations[1])
+        assert(xr.succeeded(result))
+
+        action_get_info := xr.ActionStateGetInfo{ 
+                sType = .ACTION_STATE_GET_INFO,
+                action = a.trigger_action,
+                subactionPath = a.hand_paths[0],
+        }
+        xr.GetActionStateFloat(a.session, &action_get_info, &a.trigger_states[0])
+        action_get_info.subactionPath = a.hand_paths[1]
+        xr.GetActionStateFloat(a.session, &action_get_info, &a.trigger_states[1])
+        action_get_info.action = a.trigger_click_action
+        action_get_info.subactionPath = a.hand_paths[0]
+        xr.GetActionStateBoolean(a.session, &action_get_info, &a.trigger_click_states[0])
+        action_get_info.subactionPath = a.hand_paths[1]
+        xr.GetActionStateBoolean(a.session, &action_get_info, &a.trigger_click_states[1])
+
+        frame_begin := xr.FrameBeginInfo{
+                sType = .FRAME_BEGIN_INFO,
+                next = nil,
+        } 
+        result = xr.BeginFrame(a.session, &frame_begin)
+        assert(xr.succeeded(result))
+}
+
+projection_from_fov_gl :: proc(fov: xr.Fovf, near, far: f32) -> (proj: matrix[4, 4]f32) {
+	left := math.tan(fov.angleLeft)
+	right := math.tan(fov.angleRight)
+	down := math.tan(fov.angleDown)
+	up := math.tan(fov.angleUp)
+
+	width := right - left
+	height := down - up // Vulkan, and no offsets since this isn't GL
+        offset := near
+
+	proj = matrix[4, 4]f32 {
+		2.0 / width, 0.0, (right + left) / width, 0.0, 
+		0.0, 2.0 / height, (up + down) / height, 0.0, 
+		0.0, 0.0, -(far + offset) / (far - near), -(far * (near + offset)) / (far - near), 
+		0.0, 0.0, -1.0, 0.0, 
+	}
+
+	return
+}
+
+model_from_pose :: proc(pose: xr.Posef) -> (view: matrix[4, 4]f32) {
+	cam_pos := pose.position
+	cam_rot := pose.orientation
+	translation := la.matrix4_translate_f32(transmute(la.Vector3f32)cam_pos)
+	rotation := la.matrix4_from_quaternion_f32(transmute(la.Quaternionf32)cam_rot)
+	view = cast(matrix[4, 4]f32)(translation * rotation)
+	return
+}
+
+// Locate the views, and render into the swapchains
+app_update_render :: proc(a: ^App) {
+        result: xr.Result
+
+        // Reset Composition Layer
+        a.projection_layer = xr.CompositionLayerProjection{ 
+                sType = .COMPOSITION_LAYER_PROJECTION,
+                space = a.stage_space,
+        }
+
+        // Locate Views
+        views: [MAX_VIEWS]xr.View
+        for i in 0 ..< a.view_count {
+                views[i].sType = .VIEW;
+                views[i].next = nil;
+        }
+        view_state := xr.ViewState{ sType = .VIEW_STATE }
+        view_locate_info := xr.ViewLocateInfo{
+                sType = .VIEW_LOCATE_INFO,
+                viewConfigurationType = .PRIMARY_STEREO,
+                displayTime = a.frame_state.predictedDisplayTime,
+                space = a.stage_space,
+        } 
+        result = xr.LocateViews(a.session, &view_locate_info, &view_state, a.view_count, &a.view_submit_count, &views[0])
+        assert(xr.succeeded(result))
+
+        // Fill in Projection Views info
+        for i in 0 ..< a.view_submit_count {
+                sub_image := xr.SwapchainSubImage{
+                        swapchain = a.swapchains[i],
+                        imageRect = {{0, 0}, {a.swapchain_widths[i], a.swapchain_heights[i]}},
+                        imageArrayIndex = 0,
+                }
+                a.projection_layer_views[i] = xr.CompositionLayerProjectionView{
+                        sType = .COMPOSITION_LAYER_PROJECTION_VIEW,
+                        subImage = sub_image,
+                        pose = views[i].pose,
+                        fov = views[i].fov,
+                }
+        }
+
+        for v in 0 ..< a.view_submit_count {
+                // Acquire and wait for the swapchain image
+                image_index: u32
+                acquire_info := xr.SwapchainImageAcquireInfo { sType = .SWAPCHAIN_IMAGE_ACQUIRE_INFO }
+                result = xr.AcquireSwapchainImage(a.swapchains[v], &acquire_info, &image_index)
+                assert(xr.succeeded(result))
+                wait_info := xr.SwapchainImageWaitInfo{ 
+                        sType = .SWAPCHAIN_IMAGE_WAIT_INFO,
+                        timeout = xr.INFINITE_DURATION,
+                }
+                result = xr.WaitSwapchainImage(a.swapchains[v], &wait_info)
+                assert(xr.succeeded(result))
+                swapchain_image := a.swapchain_images[v][image_index]
+                colour_tex := swapchain_image.image
+                width := a.projection_layer_views[v].subImage.imageRect.extent.width
+                height := a.projection_layer_views[v].subImage.imageRect.extent.height
+
+                // View, View Projection
+                inverse_view := model_from_pose(a.projection_layer_views[v].pose)
+                view := inverse(inverse_view)
+                proj := projection_from_fov_gl(a.projection_layer_views[v].fov, 0.01, 100.0)
+                view_proj := proj * view
+
+                // Left MVP
+                left_mvp := view_proj * model_from_pose(a.hand_locations[0].pose)
+
+                // Right Model
+                right_mvp := view_proj * model_from_pose(a.hand_locations[1].pose)
+        
+                // Render into the swapchain directly
+                gl.BindFramebuffer(gl.FRAMEBUFFER, a.framebuffer)
+                gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colour_tex, 0)
+                gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, a.depth_targets[v], 0)
+                gl.Viewport(0, 0, width, height)
+                gl.ClearColor(0.4, 0.4, 0.8, 1)
+                gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+                // Render Left Hand
+                ltrig := a.trigger_click_states[0].currentState ? f32(1.0) : f32(0.0)
+                gl.UseProgram(a.box_program)
+                gl.UniformMatrix4fv(0, 1, gl.FALSE, &left_mvp[0, 0])
+                gl.Uniform2f(1, a.trigger_states[0].currentState, ltrig)
+                gl.DrawArrays(gl.TRIANGLES, 0, 36)
+
+                // Render Right Hand
+                rtrig := a.trigger_click_states[1].currentState ? f32(1.0) : f32(0.0)
+                gl.UseProgram(a.box_program)
+                gl.UniformMatrix4fv(0, 1, gl.FALSE, &right_mvp[0, 0])
+                gl.Uniform2f(1, a.trigger_states[1].currentState, rtrig)
+                gl.DrawArrays(gl.TRIANGLES, 0, 36)
+                
+                // Render Background
+                gl.UseProgram(a.background_program)
+                gl.UniformMatrix4fv(0, 1, gl.FALSE, &view_proj[0, 0])
+                gl.Uniform3fv(1, 1, cast(^f32)&a.hand_locations[0].pose.position)
+                gl.DrawArrays(gl.TRIANGLES, 0, 3)
+
+                // Release Image
+                release_info := xr.SwapchainImageReleaseInfo{ sType = .SWAPCHAIN_IMAGE_RELEASE_INFO }
+                result = xr.ReleaseSwapchainImage(a.swapchains[v], &release_info)
+                assert(xr.succeeded(result))
+        }
+
+        a.projection_layer.viewCount = a.view_submit_count
+        a.projection_layer.views = &a.projection_layer_views[0]
+}
+
+// Submit the frame
+app_update_end_frame :: proc(a: ^App) {
+        layers := cast(^xr.CompositionLayerBaseHeader)&a.projection_layer
+        frame_end := xr.FrameEndInfo{ 
+                sType = .FRAME_END_INFO,
+                displayTime = a.frame_state.predictedDisplayTime,
+                environmentBlendMode = .OPAQUE,
+                layerCount = a.should_render ? 1 : 0,
+                layers = a.should_render ? &layers : nil,
+        }
+
+        result := xr.EndFrame(a.session, &frame_end)
+        assert(xr.succeeded(result))
+}
+
+app_update :: proc(a: ^App) {
+        app_update_pump_events(a)
+        if !a.is_session_ready { return }
+        app_update_begin_frame_and_get_inputs(a)
+        if a.should_render {
+                app_update_render(a)
+        }
+        app_update_end_frame(a)
+}
 
 app_shutdown :: proc(a: ^App) {
+        result: xr.Result
+
+        fmt.printf("Shutting Down\n")
+
+        // Clean up
+        for i in 0 ..< a.view_count {
+                result = xr.DestroySwapchain(a.swapchains[i])
+                assert(xr.succeeded(result))
+        }
+
+	result = xr.DestroySpace(a.stage_space)
+        assert(xr.succeeded(result))
+
+        if a.is_session_begin_ever {
+                result = xr.EndSession(a.session)
+                assert(xr.succeeded(result))
+        }
+
+        result = xr.DestroySession(a.session)
+        assert(xr.succeeded(result))
+
+	result = xr.DestroyInstance(a.instance)
+        assert(xr.succeeded(result))
 }
 
 // Entrypoint called by the OS when using native activity
