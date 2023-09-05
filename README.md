@@ -1,6 +1,6 @@
 # Odin Quest
 
-[![Watch the video](./quest_odin_example.jpg)](https://youtube.com/shorts/uB-KziG82zA)
+[![Watch the video](./quest_odin_example.png)](https://youtube.com/shorts/uB-KziG82zA)
 
 This is a small experiment to build an Odin codebase from scratch to run a meaningful application on the Quest 2.
 See the [original repo](https://github.com/cshenton/quest_xr) for information about building Quest `.apk` without
