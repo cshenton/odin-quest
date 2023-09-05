@@ -54,10 +54,6 @@ rm -ea 0 temp.apk
 rm -ea 0 build.apk
 
 # Install and run
-# & $ADB install -r questodin.apk
-# & $ADB shell am start -n org.cshenton.questodin/android.app.NativeActivity
-# & $ADB logcat OpenXR:V questodin:V *:S -v color
-
 & $ADB install -r questodin.apk
 & $ADB shell am start -n org.cshenton.questodin/android.app.NativeActivity
-& $ADB logcat > log.txt
+& $ADB logcat OpenXR:V questodin:V *:S -v color

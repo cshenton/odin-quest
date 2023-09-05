@@ -1114,7 +1114,9 @@ void main() {
         vec3 pos = vec3(mix(1.0, 1.2, t)) * cube_positions[element];
 
         gl_Position = vec4(mvp * vec4(pos, 1.0));
-        vc = mix(vec3(0, 0, 1), vec3(1, 0, 0), trigger_state.x);
+        vec3 odin_blue = pow(vec3(56.0, 130.0, 210.0) / 255.0, vec3(2.22));
+        vec3 odin_orange = pow(vec3(239.0, 122.0, 48.0) / 255.0, vec3(2.22));
+        vc = mix(odin_blue, odin_orange, trigger_state.x);
 }
 `
 
