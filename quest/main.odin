@@ -81,8 +81,7 @@ App :: struct {
         frame_state: xr.FrameState,
         should_render: bool,
         is_running: bool,
-        is_session_ready: bool,
-        is_session_begin_ever: bool,
+        is_session_running: bool,
 
         // Frame Submission
         view_submit_count: u32,
@@ -641,7 +640,7 @@ app_compile_shader :: proc(vert_src, frag_src: cstring) -> (program: u32) {
         }
 
         frag_shd := gl.CreateShader(gl.FRAGMENT_SHADER)
-        gl.ShaderSource(frag_shd, 1, &BOX_FRAG_SRC, nil)
+        gl.ShaderSource(frag_shd, 1, &frag_src, nil)
         gl.CompileShader(frag_shd)
 
         gl.GetShaderiv(frag_shd, gl.COMPILE_STATUS, &success)
@@ -701,8 +700,7 @@ app_update_begin_session :: proc(a: ^App) {
         }
         result := xr.BeginSession(a.session, &begin_desc)
         assert(xr.succeeded(result))
-        a.is_session_begin_ever = true
-        a.is_session_ready = true
+        a.is_session_running = true
 }
 
 // Handle session state changes
@@ -714,7 +712,12 @@ app_update_session_state_change :: proc(a: ^App, state: xr.SessionState) {
         case .SYNCHRONIZED: c.printf(".SYNCHRONIZED\n")
         case .VISIBLE: c.printf(".VISIBLE\n")
         case .FOCUSED: c.printf(".FOCUSED\n")
-        case .STOPPING: c.printf(".STOPPING\n")
+        case .STOPPING: {
+                c.printf(".STOPPING\n")
+                result := xr.EndSession(a.session)
+                assert(xr.succeeded(result))
+                a.is_session_running = false
+        }
         case .LOSS_PENDING: c.printf(".LOSS_PENDING\n")
         case .EXITING: c.printf(".EXITING\n")
         case: c.printf(".??? %d\n", i32(a.session_state))
@@ -839,7 +842,7 @@ projection_from_fov_gl :: proc(fov: xr.Fovf, near, far: f32) -> (proj: matrix[4,
 	up := math.tan(fov.angleUp)
 
 	width := right - left
-	height := down - up // Vulkan, and no offsets since this isn't GL
+	height := up - down // Vulkan, and no offsets since this isn't GL
         offset := near
 
 	proj = matrix[4, 4]f32 {
@@ -857,8 +860,7 @@ model_from_pose :: proc(pose: xr.Posef) -> (view: matrix[4, 4]f32) {
 	cam_rot := pose.orientation
 	translation := la.matrix4_translate_f32(transmute(la.Vector3f32)cam_pos)
 	rotation := la.matrix4_from_quaternion_f32(transmute(la.Quaternionf32)cam_rot)
-	view = cast(matrix[4, 4]f32)(translation * rotation)
-	return
+	return translation * rotation
 }
 
 // Locate the views, and render into the swapchains
@@ -986,7 +988,7 @@ app_update_end_frame :: proc(a: ^App) {
 
 app_update :: proc(a: ^App) {
         app_update_pump_events(a)
-        if !a.is_session_ready { return }
+        if !a.is_session_running { return }
         app_update_begin_frame_and_get_inputs(a)
         if a.should_render {
                 app_update_render(a)
@@ -1008,7 +1010,7 @@ app_shutdown :: proc(a: ^App) {
 	result = xr.DestroySpace(a.stage_space)
         assert(xr.succeeded(result))
 
-        if a.is_session_begin_ever {
+        if a.is_session_running {
                 result = xr.EndSession(a.session)
                 assert(xr.succeeded(result))
         }
